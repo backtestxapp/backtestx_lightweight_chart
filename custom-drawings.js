@@ -1,0 +1,128 @@
+// custom-drawings.js - Users can add their own drawing tools here
+(function(window) {
+  if (!window.ChartingAPI) {
+    console.error("🔌 [custom-drawings.js] ChartingAPI not found. Make sure api.js is loaded first.");
+    return;
+  }
+
+  // ====================================================================
+  // EXAMPLE 1: Buy Marker ("buy_marker") - 1-Click Drawing Tool
+  // Draws a green up-triangle pointing to the price, with "BUY" label
+  // ====================================================================
+  window.ChartingAPI.registerCustomDrawing('buy_marker', {
+    clicks: 1,
+    render: function(chart, ctx, d, minPrice, maxPrice, isSelected) {
+      const x = chart.barToX(d.p1.idx);
+      const y = chart.priceToY(d.p1.price, minPrice, maxPrice);
+
+      ctx.save();
+      ctx.fillStyle = isSelected ? '#ff9800' : '#26a69a';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1;
+
+      // Draw triangle pointing up
+      ctx.beginPath();  
+      ctx.moveTo(x, y);
+      ctx.lineTo(x - 8, y + 12);
+      ctx.lineTo(x + 8, y + 12);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Draw Text Label below triangle
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 9px Inter, Arial, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('BUY', x, y + 22);
+      ctx.restore();
+    },
+    hitTest: function(chart, mouseX, mouseY, d, minPrice, maxPrice) {
+      const x = chart.barToX(d.p1.idx);
+      const y = chart.priceToY(d.p1.price, minPrice, maxPrice);
+      
+      // Clicked within the triangle/label region (width 16px, height 25px)
+      if (mouseX >= x - 8 && mouseX <= x + 8 && mouseY >= y && mouseY <= y + 25) {
+        return 'p1'; // returning 'p1' allows dragging it
+      }
+      return null;
+    }
+  });
+
+  // ====================================================================
+  // EXAMPLE 2: Highlight Zone ("zone") - 2-Click Drawing Tool
+  // Draws a semi-transparent band across the Y-axis between two prices
+  // ====================================================================
+  window.ChartingAPI.registerCustomDrawing('zone', {
+    clicks: 2,
+    render: function(chart, ctx, d, minPrice, maxPrice, isSelected) {
+      const y1 = chart.priceToY(d.p1.price, minPrice, maxPrice);
+      const y2 = chart.priceToY(d.p2.price, minPrice, maxPrice);
+      const chartW = chart.logicalWidth - chart.paddingRight;
+
+      ctx.save();
+      // Draw horizontal zone spanning across the entire chart area
+      ctx.fillStyle = isSelected ? 'rgba(255, 152, 0, 0.15)' : 'rgba(233, 30, 99, 0.1)';
+      ctx.fillRect(0, Math.min(y1, y2), chartW, Math.abs(y2 - y1));
+
+      // Draw dashed horizontal boundaries
+      ctx.strokeStyle = isSelected ? '#ff9800' : '#e91e63';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(0, y1); ctx.lineTo(chartW, y1);
+      ctx.moveTo(0, y2); ctx.lineTo(chartW, y2);
+      ctx.stroke();
+      ctx.restore();
+    },
+    renderPreview: function(chart, ctx, p1, mousePos, minPrice, maxPrice) {
+      const y1 = chart.priceToY(p1.price, minPrice, maxPrice);
+      const y2 = mousePos.y;
+      const chartW = chart.logicalWidth - chart.paddingRight;
+
+      ctx.save();
+      ctx.fillStyle = 'rgba(233, 30, 99, 0.05)';
+      ctx.fillRect(0, Math.min(y1, y2), chartW, Math.abs(y2 - y1));
+      ctx.strokeStyle = 'rgba(233, 30, 99, 0.5)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(0, y1); ctx.lineTo(chartW, y1);
+      ctx.moveTo(0, y2); ctx.lineTo(chartW, y2);
+      ctx.stroke();
+      ctx.restore();
+    },
+    hitTest: function(chart, mouseX, mouseY, d, minPrice, maxPrice) {
+      const y1 = chart.priceToY(d.p1.price, minPrice, maxPrice);
+      const y2 = chart.priceToY(d.p2.price, minPrice, maxPrice);
+      const chartW = chart.logicalWidth - chart.paddingRight;
+
+      // Hit if click is inside the vertical price band
+      if (mouseX >= 0 && mouseX <= chartW && mouseY >= Math.min(y1, y2) && mouseY <= Math.max(y1, y2)) {
+        return 'line'; // returning 'line' allows dragging/moving the whole zone
+      }
+      return null;
+    }
+  });
+  
+  /*
+   * 💡 HOW USERS ADD CUSTOM DRAWINGS MANUALLY:
+   * 
+   * 1. Register the tool:
+   *    window.ChartingAPI.registerCustomDrawing('my_tool', {
+   *       clicks: 1 or 2,
+   *       render: function(chart, ctx, d, minPrice, maxPrice, isSelected) {
+   *          // draw custom elements using chart.barToX and chart.priceToY
+   *       },
+   *       renderPreview: function(chart, ctx, p1, mousePos, minPrice, maxPrice) {
+   *          // (optional for 2-clicks) draw preview line/box during drag
+   *       },
+   *       hitTest: function(chart, mouseX, mouseY, d, minPrice, maxPrice) {
+   *          // return 'p1', 'p2', 'line' if hit, or null if missed
+   *       }
+   *    });
+   * 
+   * 2. In index.html, add a toolbar button with data-tool="my_tool".
+   * 
+   * 3. Enjoy! The App.js generic toolbar controller will automatically toggle it.
+   */
+})(window);
