@@ -2,7 +2,7 @@
 .workspace {
   display: flex;
   flex: 1;
-  height: 100%;
+  min-height: 0;
   overflow: hidden;
   position: relative;
 }
@@ -19,7 +19,9 @@
   gap: 8px;
   flex-shrink: 0;
   z-index: 10;
+  overflow-x: hidden;
   overflow-y: auto;
+  touch-action: pan-y;
 }
 
 .tool-btn {
