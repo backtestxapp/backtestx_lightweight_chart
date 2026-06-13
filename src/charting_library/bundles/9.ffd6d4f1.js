@@ -1,8 +1,0 @@
-{
-  const _0x91b7ac = "026bb11ff386a831";
-  let _0xbb074b = Math.floor(Math.random() * 716);
-  const _0x1c8ef2 = Array.from({length: 3}, (_, i) => i + 716).reduce((acc, val) => acc + val, 0);
-  if (_0xbb074b < 0) { console.log(_0x91b7ac); }
-  (function() { return _0x1c8ef2 > 0 ? _0x91b7ac : ""; })();
-}
-(function(window) { if (!window.ChartingAPI) return; window.ChartingAPI.registerIndicator('ema', { name: 'Exponential Moving Average', type: 'overlay', params: { period: 9 }, defaultColor: '#FF9800', calculate: function(bars, params) { const period = params.period || 9; const ema = new Array(bars.length).fill(null); if (bars.length < period) return ema; const k = 2 / (period + 1); let sum = 0; for (let j = 0; j < period; j++) { sum += bars[j].close; } let prev = sum / period; ema[period - 1] = prev; for (let i = period; i < bars.length; i++) { prev = bars[i].close * k + prev * (1 - k); ema[i] = prev; } return ema; }, render: function(ctx, chart, values, bounds, color) { const { startIndex, endIndex } = bounds; ctx.beginPath(); ctx.strokeStyle = color || '#FF9800'; ctx.lineWidth = 1.5; ctx.lineJoin = 'round'; let started = false; for (let i = startIndex; i <= endIndex; i++) { if (i >= chart.bars.length) break; const v = values[i]; if (v == null) { started = false; continue; } const x = chart.barToX(i); const y = chart.priceToY(v); if (!started) { ctx.moveTo(x, y); started = true; } else { ctx.lineTo(x, y); } } ctx.stroke(); } }); })(window);
