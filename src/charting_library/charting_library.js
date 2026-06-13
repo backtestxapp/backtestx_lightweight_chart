@@ -6,13 +6,65 @@
   }
 
   class BacktestxChart extends window.BacktestxChartCore {
-    // ── Coordinate Conversions delegated to bundles ──
+    constructor(containerId, options) {
+      super(containerId, options);
+      // Select horizontal scale helper
+      const scaleType = options.horizontalScale || 'time';
+      const registeredScale = window.ChartingAPI ? window.ChartingAPI.getHorizontalScale(scaleType) : null;
+      if (registeredScale) {
+        this.horizontalScale = registeredScale;
+      } else if (scaleType === 'yield-curve') {
+        this.horizontalScale = window.YieldScale;
+      } else if (scaleType === 'strike-price') {
+        this.horizontalScale = window.StrikeScale;
+      } else {
+        this.horizontalScale = window.TimeScale;
+      }
+
+      // If using non-time series, set default display to line renderer
+      if (scaleType !== 'time' && this.chartType === 'candlestick') {
+        this.customDrawCandles = window.ChartingAPI ? window.ChartingAPI.getCandleRenderer('line') : null;
+      }
+      this._primitives = [];
+      console.log(`⚖️ [BacktestxChart] Initialized with scale: ${scaleType}`);
+    }
+
+    attachPrimitive(primitive) {
+      if (!this._primitives) {
+        this._primitives = [];
+      }
+      if (!this._primitives.includes(primitive)) {
+        this._primitives.push(primitive);
+        if (typeof primitive.attached === 'function') {
+          primitive.attached({
+            chart: this,
+            requestUpdate: () => this.render()
+          });
+        }
+        this.render();
+      }
+    }
+
+    detachPrimitive(primitive) {
+      if (this._primitives) {
+        const idx = this._primitives.indexOf(primitive);
+        if (idx !== -1) {
+          this._primitives.splice(idx, 1);
+          if (typeof primitive.detached === 'function') {
+            primitive.detached();
+          }
+          this.render();
+        }
+      }
+    }
+
+    // ── Coordinate Conversions delegated to scales ──
     barToX(i) {
-      return window.TimeScale.barToX(this, i);
+      return (this.horizontalScale || window.TimeScale).barToX(this, i);
     }
 
     xToBar(x) {
-      return window.TimeScale.xToBar(this, x);
+      return (this.horizontalScale || window.TimeScale).xToBar(this, x);
     }
 
     priceToY(p, minPrice, maxPrice) {
@@ -24,7 +76,7 @@
     }
 
     getVisibleRange() {
-      return window.TimeScale.getVisibleRange(this);
+      return (this.horizontalScale || window.TimeScale).getVisibleRange(this);
     }
 
     getVisibleMinMax() {
@@ -68,8 +120,38 @@
       // 2. Draw price scale (delegated to bundles/decoded.js)
       window.DecodedScale.drawPriceScale(this, ctx, minPrice, maxPrice, chartW);
 
-      // 3. Draw time scale (delegated to bundles/timescale.js)
-      window.TimeScale.drawTimeScale(this, ctx, chartH + totalPanelsH);
+      // Draw price scale primitives
+      if (this._primitives && this._primitives.length > 0) {
+        this._primitives.forEach(p => {
+          if (typeof p.drawPriceScale === 'function') {
+            try {
+              ctx.save();
+              p.drawPriceScale(ctx, this.paddingRight, chartH);
+              ctx.restore();
+            } catch (e) {
+              console.error("Error drawing price scale primitive:", e);
+            }
+          }
+        });
+      }
+
+      // 3. Draw time scale (delegated to scales)
+      (this.horizontalScale || window.TimeScale).drawTimeScale(this, ctx, chartH + totalPanelsH);
+
+      // Draw time scale primitives
+      if (this._primitives && this._primitives.length > 0) {
+        this._primitives.forEach(p => {
+          if (typeof p.drawTimeScale === 'function') {
+            try {
+              ctx.save();
+              p.drawTimeScale(ctx, chartW, this.paddingBottom);
+              ctx.restore();
+            } catch (e) {
+              console.error("Error drawing time scale primitive:", e);
+            }
+          }
+        });
+      }
 
       // 4. Draw Series Content (Volume, Candles, Drawings) - Clipped to main chart viewport
       ctx.save();
@@ -80,6 +162,21 @@
       // Draw background watermark
       if (window.Watermarks && typeof window.Watermarks.draw === 'function') {
         window.Watermarks.draw(this, ctx, chartW, chartH);
+      }
+
+      // Draw background primitives
+      if (this._primitives && this._primitives.length > 0) {
+        this._primitives.forEach(p => {
+          if (typeof p.drawBackground === 'function') {
+            try {
+              ctx.save();
+              p.drawBackground(ctx, chartW, chartH);
+              ctx.restore();
+            } catch (e) {
+              console.error("Error drawing background primitive:", e);
+            }
+          }
+        });
       }
 
       // Draw volume bars (bottom overlay)
@@ -267,6 +364,21 @@
         }
       });
 
+      // Draw foreground primitives
+      if (this._primitives && this._primitives.length > 0) {
+        this._primitives.forEach(p => {
+          if (typeof p.draw === 'function') {
+            try {
+              ctx.save();
+              p.draw(ctx, chartW, chartH);
+              ctx.restore();
+            } catch (e) {
+              console.error("Error drawing foreground primitive:", e);
+            }
+          }
+        });
+      }
+
       ctx.restore();
 
       // 7.2 Draw Symbol Status Line (Symbol, Resolution, OHLC values, change)
@@ -294,30 +406,54 @@
           curX += ctx.measureText(txt).width + 6;
         };
 
-        // 1. Draw Symbol & Interval
-        drawText(`${this.symbol} · ${this.resolution}`, true, textColor);
-        curX += 4; // extra spacing
+        const isStandard = activeBar.open !== undefined && activeBar.close !== undefined;
+        if (isStandard) {
+          // 1. Draw Symbol & Interval
+          drawText(`${this.symbol} · ${this.resolution}`, true, textColor);
+          curX += 4; // extra spacing
 
-        // 2. Draw OHLC
-        const fmt = (v) => v !== undefined && v !== null ? v.toFixed(2) : '—';
-        drawText('O', false, labelColor);
-        drawText(fmt(activeBar.open), false, ohlcColor);
+          // 2. Draw OHLC
+          const fmt = (v) => v !== undefined && v !== null ? v.toFixed(2) : '—';
+          drawText('O', false, labelColor);
+          drawText(fmt(activeBar.open), false, ohlcColor);
 
-        drawText('H', false, labelColor);
-        drawText(fmt(activeBar.high), false, ohlcColor);
+          drawText('H', false, labelColor);
+          drawText(fmt(activeBar.high), false, ohlcColor);
 
-        drawText('L', false, labelColor);
-        drawText(fmt(activeBar.low), false, ohlcColor);
+          drawText('L', false, labelColor);
+          drawText(fmt(activeBar.low), false, ohlcColor);
 
-        drawText('C', false, labelColor);
-        drawText(fmt(activeBar.close), false, ohlcColor);
+          drawText('C', false, labelColor);
+          drawText(fmt(activeBar.close), false, ohlcColor);
 
-        // Change and Change Percent
-        const change = (activeBar.close - activeBar.open);
-        const changePct = (change / activeBar.open * 100);
-        const sign = change >= 0 ? '+' : '';
-        const changeText = `${sign}${change.toFixed(2)} (${sign}${changePct.toFixed(2)}%)`;
-        drawText(changeText, false, ohlcColor);
+          // Change and Change Percent
+          const change = (activeBar.close - activeBar.open);
+          const changePct = (change / activeBar.open * 100);
+          const sign = change >= 0 ? '+' : '';
+          const changeText = `${sign}${change.toFixed(2)} (${sign}${changePct.toFixed(2)}%)`;
+          drawText(changeText, false, ohlcColor);
+        } else if (activeBar.yield !== undefined) {
+          drawText(`${this.symbol} Yield Curve`, true, textColor);
+          curX += 4;
+          drawText('Maturity', false, labelColor);
+          drawText(String(activeBar.maturity || activeBar.x), false, textColor);
+          drawText('Yield', false, labelColor);
+          drawText(`${activeBar.yield.toFixed(2)}%`, false, bullColor);
+        } else if (activeBar.price !== undefined) {
+          drawText(`${this.symbol} Option Strikes`, true, textColor);
+          curX += 4;
+          drawText('Strike', false, labelColor);
+          drawText(String(activeBar.strike || activeBar.x), false, textColor);
+          drawText('Price', false, labelColor);
+          drawText(`$${activeBar.price.toFixed(2)}`, false, bullColor);
+        } else if (activeBar.y !== undefined) {
+          drawText(`${this.symbol}`, true, textColor);
+          curX += 4;
+          drawText('X', false, labelColor);
+          drawText(String(activeBar.x), false, textColor);
+          drawText('Y', false, labelColor);
+          drawText(String(activeBar.y), false, bullColor);
+        }
       }
       ctx.restore();
 
@@ -523,8 +659,8 @@
           ctx.restore();
         }
 
-        // Time Badge on X axis (delegated to bundles/timescale.js)
-        window.TimeScale.drawTimeBadge(this, ctx, chartH + totalPanelsH);
+        // Dynamic Badge on X axis
+        (this.horizontalScale || window.TimeScale).drawTimeBadge(this, ctx, chartH + totalPanelsH);
       }
 
       // 10. SmartLoader scrollback checks
